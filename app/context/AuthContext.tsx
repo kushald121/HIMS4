@@ -14,6 +14,8 @@ interface AuthContextType {
   logout: () => Promise<void>;
   selectHospital: (hospitalId: number) => void;
   loading: boolean;
+  authLoading: boolean;
+  authError: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,6 +27,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hospitalUser, setHospitalUser] = useState<HospitalUser | null>(null);
   const [hospitals, setHospitals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     const storedToken = localStorage.getItem('token');
@@ -46,47 +50,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    const response = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
+    setAuthLoading(true);
+    setAuthError(null);
+    
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
 
-    const data = await response.json();
+      const data = await response.json();
 
-    if (!data.success) {
-      throw new Error(data.error);
+      if (!data.success) {
+        throw new Error(data.error || 'Login failed');
+      }
+
+      setToken(data.data.token);
+      setUser(data.data.user);
+      setHospitals(data.data.hospitals || []);
+
+      localStorage.setItem('token', data.data.token);
+      localStorage.setItem('user', JSON.stringify(data.data.user));
+      localStorage.setItem('hospitals', JSON.stringify(data.data.hospitals || []));
+    } catch (err: any) {
+      console.error('Login error:', err);
+      const errorMessage = err.message || 'Login failed. Please try again.';
+      setAuthError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setAuthLoading(false);
     }
-
-    setToken(data.data.token);
-    setUser(data.data.user);
-    setHospitals(data.data.hospitals || []);
-
-    localStorage.setItem('token', data.data.token);
-    localStorage.setItem('user', JSON.stringify(data.data.user));
-    localStorage.setItem('hospitals', JSON.stringify(data.data.hospitals || []));
   };
 
   const register = async (userData: any) => {
-    const response = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(userData)
-    });
+    setAuthLoading(true);
+    setAuthError(null);
+    
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData)
+      });
 
-    const data = await response.json();
+      const data = await response.json();
 
-    if (!data.success) {
-      throw new Error(data.error);
+      if (!data.success) {
+        throw new Error(data.error || 'Registration failed');
+      }
+    } catch (err: any) {
+      console.error('Registration error:', err);
+      const errorMessage = err.message || 'Registration failed. Please try again.';
+      setAuthError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
   const logout = async () => {
     if (token) {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } catch (error) {
+        console.error('Logout error:', error);
+      }
     }
 
     setUser(null);
@@ -132,7 +164,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         register,
         logout,
         selectHospital,
-        loading
+        loading,
+        authLoading,
+        authError
       }}
     >
       {children}

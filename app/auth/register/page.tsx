@@ -21,8 +21,7 @@ export default function RegisterPage() {
     confirm_password: ''
   });
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { register } = useAuth();
+  const { register, authLoading, authError } = useAuth();
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,15 +38,12 @@ export default function RegisterPage() {
       return;
     }
 
-    setLoading(true);
-
     try {
       await register(formData);
       router.push('/auth/login?registered=true');
     } catch (err: any) {
-      setError(err.message || 'Registration failed');
-    } finally {
-      setLoading(false);
+      // Error is handled by AuthContext, but we can still set local error if needed
+      console.error('Registration error in component:', err);
     }
   };
 
@@ -67,9 +63,9 @@ export default function RegisterPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
+            {(error || authError) && (
               <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription>{error || authError}</AlertDescription>
               </Alert>
             )}
             <div className="grid grid-cols-2 gap-4">
@@ -82,6 +78,7 @@ export default function RegisterPage() {
                   value={formData.first_name}
                   onChange={handleChange}
                   required
+                  disabled={authLoading}
                 />
               </div>
               <div className="space-y-2">
@@ -93,6 +90,7 @@ export default function RegisterPage() {
                   value={formData.last_name}
                   onChange={handleChange}
                   required
+                  disabled={authLoading}
                 />
               </div>
             </div>
@@ -106,6 +104,7 @@ export default function RegisterPage() {
                 value={formData.email}
                 onChange={handleChange}
                 required
+                disabled={authLoading}
               />
             </div>
             <div className="space-y-2">
@@ -117,6 +116,7 @@ export default function RegisterPage() {
                 placeholder="+1234567890"
                 value={formData.phone}
                 onChange={handleChange}
+                disabled={authLoading}
               />
             </div>
             <div className="space-y-2">
@@ -129,6 +129,7 @@ export default function RegisterPage() {
                 value={formData.password}
                 onChange={handleChange}
                 required
+                disabled={authLoading}
               />
             </div>
             <div className="space-y-2">
@@ -141,10 +142,11 @@ export default function RegisterPage() {
                 value={formData.confirm_password}
                 onChange={handleChange}
                 required
+                disabled={authLoading}
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Creating Account...' : 'Create Account'}
+            <Button type="submit" className="w-full" disabled={authLoading}>
+              {authLoading ? 'Creating Account...' : 'Create Account'}
             </Button>
           </form>
         </CardContent>
