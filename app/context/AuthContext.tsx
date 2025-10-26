@@ -146,6 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: hospital.role,
         employee_id: hospital.employee_id,
         department: hospital.department,
+        is_active: hospital.is_active || true,
         created_at: hospital.created_at,
         updated_at: hospital.updated_at
       });

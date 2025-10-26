@@ -1,92 +1,221 @@
-import { NextRequest } from 'next/server';
-import { supabaseAdmin } from '@/app/lib/supabase';
-import { requireRole } from '@/app/middleware/auth';
-import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse } from '@/app/utils/response';
+import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/app/lib/supabase';
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await requireRole(request, ['admin', 'doctor', 'receptionist']);
-
     const { searchParams } = new URL(request.url);
     const patientId = searchParams.get('patient_id');
-    const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const doctorId = searchParams.get('doctor_id');
+    const visitType = searchParams.get('visit_type');
+    const startDate = searchParams.get('start_date');
+    const endDate = searchParams.get('end_date');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '20');
+    const offset = (page - 1) * limit;
 
-    let query = supabaseAdmin
+    // Build query
+    let query = supabase
       .from('visits')
       .select(`
         *,
-        patients(patient_number, users(first_name, last_name)),
-        hospital_users(users(first_name, last_name))
-      `)
-      .eq('hospital_id', auth.hospitalId!)
-      .range(offset, offset + limit - 1)
+        patient:patients (
+          id,
+          patient_number,
+          first_name,
+          last_name,
+          date_of_birth,
+          gender,
+          blood_group,
+          contact_number
+        ),
+        doctor:users!visits_doctor_id_fkey (
+          id,
+          first_name,
+          last_name,
+          email
+        ),
+        prescription:prescriptions (
+          id,
+          prescription_number,
+          status,
+          notes
+        )
+      `, { count: 'exact' })
+      .is('deleted_at', null)
       .order('visit_date', { ascending: false });
 
-    if (patientId) {
-      query = query.eq('patient_id', parseInt(patientId));
-    }
+    // Apply filters
+    if (patientId) query = query.eq('patient_id', patientId);
+    if (doctorId) query = query.eq('doctor_id', doctorId);
+    if (visitType) query = query.eq('visit_type', visitType);
+    if (startDate) query = query.gte('visit_date', startDate);
+    if (endDate) query = query.lte('visit_date', endDate);
 
-    if (auth.hospitalUser!.role === 'doctor') {
-      query = query.eq('doctor_id', auth.hospitalUser!.id);
-    }
+    // Apply pagination
+    query = query.range(offset, offset + limit - 1);
 
-    const { data: visits, error } = await query;
+    const { data: visits, error, count } = await query;
 
     if (error) {
-      return errorResponse(error.message);
+      console.error('Error fetching visits:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch visits' },
+        { status: 500 }
+      );
     }
 
-    return successResponse({ visits });
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return unauthorizedResponse();
-    }
-    if (error.message === 'Forbidden') {
-      return forbiddenResponse();
-    }
-    return errorResponse(error.message, 500);
+    return NextResponse.json({
+      visits: visits || [],
+      pagination: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
+    });
+  } catch (error) {
+    console.error('Visit fetch error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireRole(request, ['admin', 'doctor', 'receptionist']);
     const body = await request.json();
+    const {
+      patient_id,
+      doctor_id,
+      hospital_id,
+      visit_type = 'consultation',
+      chief_complaint,
+      diagnosis,
+      vital_signs,
+      notes,
+      prescription_data, // Optional: { notes, items: [{ medication_name, dosage, frequency, duration, quantity }] }
+    } = body;
 
-    const visitNumber = `V${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    // Validate required fields
+    if (!patient_id || !doctor_id || !hospital_id) {
+      return NextResponse.json(
+        { error: 'Missing required fields: patient_id, doctor_id, hospital_id' },
+        { status: 400 }
+      );
+    }
 
-    const { data: visit, error } = await supabaseAdmin
-      .from('visits')
-      .insert({
-        hospital_id: auth.hospitalId!,
-        patient_id: body.patient_id,
-        doctor_id: body.doctor_id,
-        visit_number: visitNumber,
-        visit_type: body.visit_type || 'consultation',
-        chief_complaint: body.chief_complaint,
-        symptoms: body.symptoms,
-        diagnosis: body.diagnosis,
-        treatment_plan: body.treatment_plan,
-        notes: body.notes,
-        status: 'active',
-        created_by: auth.hospitalUser!.id
-      })
-      .select()
+    // Verify patient exists
+    const { data: patient, error: patientError } = await supabase
+      .from('patients')
+      .select('id')
+      .eq('id', patient_id)
+      .eq('hospital_id', hospital_id)
       .single();
 
-    if (error) {
-      return errorResponse(error.message);
+    if (patientError || !patient) {
+      return NextResponse.json(
+        { error: 'Patient not found' },
+        { status: 404 }
+      );
     }
 
-    return successResponse({ visit }, 201);
-  } catch (error: any) {
-    if (error.message === 'Unauthorized') {
-      return unauthorizedResponse();
+    // Create visit
+    const { data: visit, error: visitError } = await supabase
+      .from('visits')
+      .insert({
+        patient_id,
+        doctor_id,
+        hospital_id,
+        visit_type,
+        visit_date: new Date().toISOString(),
+        chief_complaint,
+        diagnosis,
+        vital_signs: vital_signs || null,
+        notes,
+      })
+      .select(`
+        *,
+        patient:patients (
+          id,
+          patient_number,
+          first_name,
+          last_name,
+          date_of_birth,
+          gender,
+          blood_group
+        ),
+        doctor:users!visits_doctor_id_fkey (
+          id,
+          first_name,
+          last_name,
+          email
+        )
+      `)
+      .single();
+
+    if (visitError) {
+      console.error('Error creating visit:', visitError);
+      return NextResponse.json(
+        { error: 'Failed to create visit' },
+        { status: 500 }
+      );
     }
-    if (error.message === 'Forbidden') {
-      return forbiddenResponse();
+
+    // Create prescription if provided
+    let prescription = null;
+    if (prescription_data && prescription_data.items && prescription_data.items.length > 0) {
+      const { data: newPrescription, error: prescriptionError } = await supabase
+        .from('prescriptions')
+        .insert({
+          visit_id: visit.id,
+          patient_id,
+          doctor_id,
+          hospital_id,
+          status: 'pending',
+          notes: prescription_data.notes || null,
+        })
+        .select()
+        .single();
+
+      if (prescriptionError) {
+        console.error('Error creating prescription:', prescriptionError);
+      } else {
+        prescription = newPrescription;
+
+        // Create prescription items
+        const prescriptionItems = prescription_data.items.map((item: any) => ({
+          prescription_id: newPrescription.id,
+          medication_name: item.medication_name,
+          dosage: item.dosage,
+          frequency: item.frequency,
+          duration: item.duration,
+          quantity: item.quantity,
+          instructions: item.instructions || null,
+        }));
+
+        const { error: itemsError } = await supabase
+          .from('prescription_items')
+          .insert(prescriptionItems);
+
+        if (itemsError) {
+          console.error('Error creating prescription items:', itemsError);
+        }
+      }
     }
-    return errorResponse(error.message, 500);
+
+    return NextResponse.json({
+      visit: {
+        ...visit,
+        prescription,
+      },
+      message: 'Visit recorded successfully',
+    }, { status: 201 });
+  } catch (error) {
+    console.error('Visit creation error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
