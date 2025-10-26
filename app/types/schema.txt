@@ -1,0 +1,275 @@
+-- ================================  
+-- ENUM declarations  
+-- ================================  
+CREATE TYPE role_enum AS ENUM ('admin', 'doctor', 'pharmacist', 'receptionist', 'patient');
+CREATE TYPE status_enum AS ENUM ('pending', 'filled', 'partially_filled', 'cancelled', 'out_of_stock', 'active', 'completed', 'scheduled', 'confirmed', 'no_show');
+CREATE TYPE gender_enum AS ENUM ('male', 'female', 'other', 'prefer_not_to_say');
+CREATE TYPE visit_type_enum AS ENUM ('consultation', 'follow_up', 'emergency', 'routine_checkup');
+
+-- ===========================  
+-- Hospitals  
+-- ===========================  
+CREATE TABLE hospitals (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  logo_url TEXT,
+  address TEXT,
+  contact_email VARCHAR(255),
+  contact_phone VARCHAR(20),
+  settings JSONB DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX idx_hospitals_deleted ON hospitals(deleted_at);
+CREATE INDEX idx_hospitals_settings_gin ON hospitals USING gin (settings);
+
+-- ===========================  
+-- Users (Global Users)  
+-- ===========================  
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash TEXT NULL,    -- nullable for OAuth users
+  first_name VARCHAR(100),
+  last_name VARCHAR(100),
+  oauth_provider VARCHAR(50) NULL CHECK (oauth_provider IN ('google', 'meta')),
+  oauth_provider_id VARCHAR(255) NULL,
+  phone VARCHAR(20),
+  email_verified BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
+CREATE INDEX idx_users_oauth ON users(oauth_provider, oauth_provider_id) WHERE oauth_provider IS NOT NULL;
+
+-- ===========================  
+-- User Sessions (hashed tokens only)  
+-- ===========================  
+CREATE TABLE user_sessions (
+  id SERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT UNIQUE NOT NULL,
+  device_info JSONB,
+  ip_address INET,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_used_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_sessions_user ON user_sessions(user_id);
+CREATE INDEX idx_sessions_expiry ON user_sessions(expires_at);
+CREATE INDEX idx_sessions_device_gin ON user_sessions USING gin (device_info);
+
+-- ===========================  
+-- Hospital-User Mapping  
+-- ===========================  
+CREATE TABLE hospital_users (
+  id SERIAL PRIMARY KEY,
+  hospital_id INT REFERENCES hospitals(id) ON DELETE CASCADE,
+  user_id INT REFERENCES users(id) ON DELETE CASCADE,
+  role role_enum NOT NULL,
+  employee_id VARCHAR(100),
+  department VARCHAR(100),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_by INT REFERENCES hospital_users(id),
+  deleted_at TIMESTAMP WITH TIME ZONE,
+  UNIQUE(hospital_id, user_id)
+);
+
+CREATE INDEX idx_hospital_users_hospital ON hospital_users(hospital_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_hospital_users_role ON hospital_users(hospital_id, role) WHERE deleted_at IS NULL;
+
+-- ===========================  
+-- Patients (Hospital-Scoped)  
+-- ===========================  
+CREATE TABLE patients (
+  id SERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(id) NULL,    -- NULL for walk-ins
+  hospital_id INT REFERENCES hospitals(id) ON DELETE CASCADE,
+  patient_number VARCHAR(50) NOT NULL,      -- Hospital-specific
+  date_of_birth DATE,
+  gender gender_enum,
+  contact_number VARCHAR(20),
+  emergency_contact_name VARCHAR(100),
+  emergency_contact_number VARCHAR(20),
+  address TEXT,
+  blood_group VARCHAR(5),
+  allergies TEXT,
+  medical_history TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_by INT REFERENCES hospital_users(id),
+  deleted_at TIMESTAMP WITH TIME ZONE,
+  UNIQUE(hospital_id, patient_number),
+  UNIQUE(hospital_id, user_id)
+);
+
+CREATE INDEX idx_patients_hospital ON patients(hospital_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_patients_user ON patients(user_id) WHERE user_id IS NOT NULL;
+
+-- ===========================  
+-- Visits / Consultations  
+-- ===========================  
+CREATE TABLE visits (
+  id SERIAL PRIMARY KEY,
+  patient_id INT REFERENCES patients(id) ON DELETE CASCADE,
+  doctor_id INT REFERENCES hospital_users(id), -- Must validate 'doctor' role in app logic
+  hospital_id INT REFERENCES hospitals(id) ON DELETE CASCADE,
+  visit_number VARCHAR(50) NOT NULL,
+  visit_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  visit_type visit_type_enum DEFAULT 'consultation',
+  chief_complaint TEXT,
+  symptoms TEXT,
+  diagnosis TEXT,
+  treatment_plan TEXT,
+  notes TEXT,
+  status status_enum DEFAULT 'active',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_by INT REFERENCES hospital_users(id),
+  UNIQUE(hospital_id, visit_number)
+);
+
+CREATE INDEX idx_visits_patient ON visits(patient_id);
+CREATE INDEX idx_visits_doctor ON visits(doctor_id);
+CREATE INDEX idx_visits_hospital_date ON visits(hospital_id, visit_date);
+
+-- ===========================  
+-- Medical Tests  
+-- ===========================  
+CREATE TABLE medical_tests (
+  id SERIAL PRIMARY KEY,
+  visit_id INT REFERENCES visits(id) ON DELETE CASCADE,
+  test_type VARCHAR(100) NOT NULL,
+  test_name VARCHAR(255) NOT NULL,
+  test_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  result_details TEXT,
+  result_values JSONB,       -- Structured test results
+  reference_ranges JSONB,    -- Normal value ranges
+  image_url TEXT,            -- Cloudinary URL
+  lab_technician_id INT REFERENCES hospital_users(id), -- validate role in app logic
+  status status_enum DEFAULT 'pending',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_by INT REFERENCES hospital_users(id)
+);
+
+CREATE INDEX idx_tests_visit ON medical_tests(visit_id);
+CREATE INDEX idx_tests_status ON medical_tests(status, test_date);
+CREATE INDEX idx_tests_results_gin ON medical_tests USING gin (result_values);
+
+-- ===========================  
+-- Prescriptions  
+-- ===========================  
+CREATE TABLE prescriptions (
+  id SERIAL PRIMARY KEY,
+  visit_id INT REFERENCES visits(id) ON DELETE CASCADE,
+  prescribed_by INT REFERENCES hospital_users(id),    -- validate role in logic
+  medication_name VARCHAR(255) NOT NULL,
+  generic_name VARCHAR(255),
+  dosage VARCHAR(100) NOT NULL,
+  frequency VARCHAR(100) NOT NULL,
+  duration VARCHAR(100) NOT NULL,
+  quantity_prescribed INT,
+  instructions TEXT,
+  status status_enum DEFAULT 'pending',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_by INT REFERENCES hospital_users(id)
+);
+
+CREATE INDEX idx_prescriptions_visit ON prescriptions(visit_id);
+CREATE INDEX idx_prescriptions_status ON prescriptions(status);
+
+-- ===========================  
+-- Inventory (Hospital-Scoped)  
+-- ===========================  
+CREATE TABLE inventory (
+  id SERIAL PRIMARY KEY,
+  hospital_id INT REFERENCES hospitals(id) ON DELETE CASCADE,
+  medication_name VARCHAR(255) NOT NULL,
+  generic_name VARCHAR(255),
+  category VARCHAR(100),
+  manufacturer VARCHAR(255),
+  batch_number VARCHAR(100),
+  expiry_date DATE,
+  stock_quantity INT DEFAULT 0 CHECK (stock_quantity >= 0),
+  reorder_threshold INT DEFAULT 10 CHECK (reorder_threshold >= 0),
+  unit_price DECIMAL(10,2),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_by INT REFERENCES hospital_users(id),
+  deleted_at TIMESTAMP WITH TIME ZONE,
+  UNIQUE(hospital_id, medication_name, batch_number)
+);
+
+CREATE INDEX idx_inventory_hospital ON inventory(hospital_id);
+CREATE INDEX idx_inventory_low_stock ON inventory(hospital_id) WHERE stock_quantity <= reorder_threshold;
+CREATE INDEX idx_inventory_expiry ON inventory(expiry_date) WHERE expiry_date > CURRENT_DATE;
+
+-- ===========================  
+-- Prescription Fulfillment  
+-- ===========================  
+CREATE TABLE prescription_fulfillment (
+  id SERIAL PRIMARY KEY,
+  prescription_id INT REFERENCES prescriptions(id) ON DELETE CASCADE,
+  inventory_id INT REFERENCES inventory(id),
+  pharmacist_id INT REFERENCES hospital_users(id), -- validate role in app logic
+  quantity_fulfilled INT NOT NULL CHECK (quantity_fulfilled > 0),
+  fulfilled_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  status status_enum DEFAULT 'filled',
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_by INT REFERENCES hospital_users(id)
+);
+
+CREATE INDEX idx_fulfillment_prescription ON prescription_fulfillment(prescription_id);
+CREATE INDEX idx_fulfillment_pharmacist ON prescription_fulfillment(pharmacist_id);
+
+-- ===========================  
+-- Appointments (For Future)  
+-- ===========================  
+CREATE TABLE appointments (
+  id SERIAL PRIMARY KEY,
+  patient_id INT REFERENCES patients(id),
+  doctor_id INT REFERENCES hospital_users(id), -- validate doctor in logic
+  hospital_id INT REFERENCES hospitals(id) ON DELETE CASCADE,
+  appointment_date TIMESTAMP WITH TIME ZONE NOT NULL,
+  duration_minutes INT DEFAULT 30,
+  reason TEXT,
+  status status_enum DEFAULT 'scheduled',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_by INT REFERENCES hospital_users(id)
+);
+
+-- ===========================  
+-- Billing (For Future)  
+-- ===========================  
+CREATE TABLE bills (
+  id SERIAL PRIMARY KEY,
+  visit_id INT REFERENCES visits(id),
+  hospital_id INT REFERENCES hospitals(id) ON DELETE CASCADE,
+  bill_number VARCHAR(50) NOT NULL,
+  total_amount DECIMAL(12,2) NOT NULL CHECK (total_amount >= 0),
+  paid_amount DECIMAL(12,2) DEFAULT 0 CHECK (paid_amount >= 0),
+  status status_enum DEFAULT 'pending',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(hospital_id, bill_number)
+);
+
+-- ===========================
+-- Notes:
+-- 1. Any role-based validations must be handled at application level or with triggers.
+-- 2. All soft deletes use deleted_at IS NULL.
+-- 3. All audit fields standardize to hospital_users.id for created_by.
+-- 4. All ENUMs for role/status/gender/visit_type.
+-- 5. Hashed tokens only stored, with UNIQUE constraints.
+-- 6. GIN indexes added for JSONB columns.
+-- ===========================
