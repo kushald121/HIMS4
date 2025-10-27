@@ -11,7 +11,7 @@ export async function GET(
       .from('visits')
       .select(`
         *,
-        patient:patients (
+        patients (
           id,
           patient_number,
           first_name,
@@ -24,20 +24,22 @@ export async function GET(
           chronic_conditions,
           medical_history
         ),
-        doctor:users!visits_doctor_id_fkey (
+        hospital_users!visits_doctor_id_fkey (
           id,
-          first_name,
-          last_name,
-          email
+          users (
+            first_name,
+            last_name,
+            email
+          )
         ),
-        prescription:prescriptions (
+        prescriptions (
           id,
           prescription_number,
           status,
           notes,
           created_at,
           filled_at,
-          items:prescription_items (
+          prescription_items (
             id,
             medication_name,
             dosage,
@@ -45,12 +47,11 @@ export async function GET(
             duration,
             quantity,
             instructions,
-            quantity_dispensed
+            quantity_fulfilled
           )
         )
       `)
       .eq('id', params.id)
-      .is('deleted_at', null)
       .single();
 
     if (error || !visit) {
@@ -99,19 +100,20 @@ export async function PUT(
       .from('visits')
       .update(updateData)
       .eq('id', params.id)
-      .is('deleted_at', null)
       .select(`
         *,
-        patient:patients (
+        patients (
           id,
           patient_number,
           first_name,
           last_name
         ),
-        doctor:users!visits_doctor_id_fkey (
+        hospital_users!visits_doctor_id_fkey (
           id,
-          first_name,
-          last_name
+          users (
+            first_name,
+            last_name
+          )
         )
       `)
       .single();

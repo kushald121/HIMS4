@@ -50,7 +50,12 @@ export default function ReceptionistDashboard() {
       const patientsParams = new URLSearchParams();
       if (hospitalId) patientsParams.append('hospital_id', hospitalId.toString());
       
-      const patientsResponse = await fetch(`/api/patients?${patientsParams}`);
+      const patientsResponse = await fetch(`/api/patients?${patientsParams}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId!.toString()
+        }
+      });
       if (patientsResponse.ok) {
         const patientsData = await patientsResponse.json();
         const patients = patientsData.patients || [];
@@ -65,7 +70,12 @@ export default function ReceptionistDashboard() {
           hospital_id: hospitalId!.toString(),
           date: today,
         });
-        const aptResponse = await fetch(`/api/appointments?${aptParams}`);
+        const aptResponse = await fetch(`/api/appointments?${aptParams}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'x-hospital-id': hospitalId!.toString()
+          }
+        });
         if (aptResponse.ok) {
           const aptData = await aptResponse.json();
           const appointments = aptData.appointments || [];
@@ -102,6 +112,10 @@ export default function ReceptionistDashboard() {
     try {
       const response = await fetch(`/api/appointments/${appointmentId}/check-in`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId!.toString()
+        }
       });
 
       if (response.ok) {

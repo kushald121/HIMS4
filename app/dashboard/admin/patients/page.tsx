@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/app/context/AuthContext';
 import DashboardLayout from '@/app/components/DashboardLayout';
 import PatientTable from '@/app/components/patients/PatientTable';
 import PatientRegistrationForm from '@/app/components/patients/PatientRegistrationForm';
@@ -28,6 +29,7 @@ import { Plus, Search, Users, UserPlus, Activity, AlertCircle } from 'lucide-rea
 import type { Patient, Visit, Prescription } from '@/app/types';
 
 export default function AdminPatientsPage() {
+  const { token, hospitalId, loading: authLoading } = useAuth();
   const [patients, setPatients] = useState<(Patient & { age?: number })[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [patientVisits, setPatientVisits] = useState<Visit[]>([]);
@@ -47,6 +49,18 @@ export default function AdminPatientsPage() {
   const fetchPatients = async () => {
     try {
       setLoading(true);
+      
+      // Check if we have token and hospitalId
+      if (!token || !hospitalId) {
+        console.error('Missing auth credentials:', { token: !!token, hospitalId: !!hospitalId });
+        toast({
+          title: 'Authentication Error',
+          description: 'Please log in again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
       const params = new URLSearchParams({
         page: currentPage.toString(),
         limit: '10',
@@ -54,17 +68,37 @@ export default function AdminPatientsPage() {
         ...(genderFilter !== 'all' && { gender: genderFilter }),
       });
 
-      const response = await fetch(`/api/patients?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch patients');
+      const response = await fetch(`/api/patients?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId?.toString() || ''
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Fetch patients error:', response.status, errorData);
+        throw new Error(errorData.error || 'Failed to fetch patients');
+      }
 
-      const data = await response.json();
-      setPatients(data.patients);
-      setTotalPages(data.pagination.totalPages);
-      setTotalPatients(data.pagination.total);
-    } catch (error) {
+      const result = await response.json();
+      
+      // Handle successResponse wrapper: { success: true, data: { patients, pagination } }
+      if (result.success && result.data) {
+        setPatients(result.data.patients || []);
+        setTotalPages(result.data.pagination?.totalPages || 1);
+        setTotalPatients(result.data.pagination?.total || 0);
+      } else {
+        // Fallback for direct response
+        setPatients(result.patients || []);
+        setTotalPages(result.pagination?.totalPages || 1);
+        setTotalPatients(result.pagination?.total || 0);
+      }
+    } catch (error: any) {
+      console.error('Failed to fetch patients:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load patients. Please try again.',
+        description: error.message || 'Failed to load patients. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -74,13 +108,23 @@ export default function AdminPatientsPage() {
 
   const fetchPatientDetails = async (patientId: string) => {
     try {
-      const visitsResponse = await fetch(`/api/patients/${patientId}/visits`);
+      const visitsResponse = await fetch(`/api/patients/${patientId}/visits`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId?.toString() || ''
+        }
+      });
       if (visitsResponse.ok) {
         const visitsData = await visitsResponse.json();
         setPatientVisits(visitsData.visits || []);
       }
 
-      const prescriptionsResponse = await fetch(`/api/prescriptions?patient_id=${patientId}`);
+      const prescriptionsResponse = await fetch(`/api/prescriptions?patient_id=${patientId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId?.toString() || ''
+        }
+      });
       if (prescriptionsResponse.ok) {
         const prescData = await prescriptionsResponse.json();
         setPatientPrescriptions(prescData.prescriptions || []);
@@ -91,8 +135,10 @@ export default function AdminPatientsPage() {
   };
 
   useEffect(() => {
-    fetchPatients();
-  }, [currentPage, searchQuery, genderFilter]);
+    if (!authLoading && token && hospitalId) {
+      fetchPatients();
+    }
+  }, [currentPage, searchQuery, genderFilter, token, hospitalId, authLoading]);
 
   const handleAddPatient = () => {
     setEditingPatient(null);
@@ -118,6 +164,10 @@ export default function AdminPatientsPage() {
     try {
       const response = await fetch(`/api/patients/${patient.id}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId?.toString() || ''
+        }
       });
 
       if (!response.ok) throw new Error('Failed to delete patient');
@@ -138,6 +188,15 @@ export default function AdminPatientsPage() {
 
   const handlePatientSubmit = async (data: any) => {
     try {
+      if (!token || !hospitalId) {
+        toast({
+          title: 'Error',
+          description: 'Authentication required. Please log in again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       const url = editingPatient
         ? `/api/patients/${editingPatient.id}`
         : '/api/patients';
@@ -145,11 +204,18 @@ export default function AdminPatientsPage() {
 
       const response = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId.toString()
+        },
         body: JSON.stringify(data),
       });
 
-      if (!response.ok) throw new Error('Failed to save patient');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || 'Failed to save patient');
+      }
 
       toast({
         title: 'Success',
@@ -157,11 +223,13 @@ export default function AdminPatientsPage() {
       });
 
       setDialogOpen(false);
+      setEditingPatient(null);
       fetchPatients();
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Patient submit error:', error);
       toast({
         title: 'Error',
-        description: `Failed to ${editingPatient ? 'update' : 'register'} patient`,
+        description: error.message || `Failed to ${editingPatient ? 'update' : 'register'} patient`,
         variant: 'destructive',
       });
     }

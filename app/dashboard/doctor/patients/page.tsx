@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/app/context/AuthContext';
 import DashboardLayout from '@/app/components/DashboardLayout';
 import PatientTable from '@/app/components/patients/PatientTable';
 import PatientDetailCard from '@/app/components/patients/PatientDetailCard';
@@ -24,6 +25,7 @@ import { Search, Users, Calendar, Activity, FileText } from 'lucide-react';
 import type { Patient, Visit, Prescription } from '@/app/types';
 
 export default function DoctorPatientsPage() {
+  const { token, hospitalId, loading: authLoading } = useAuth();
   const [patients, setPatients] = useState<(Patient & { age?: number })[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [patientVisits, setPatientVisits] = useState<Visit[]>([]);
@@ -39,6 +41,8 @@ export default function DoctorPatientsPage() {
   const { toast } = useToast();
 
   const fetchPatients = async () => {
+    if (!token || !hospitalId) return;
+
     try {
       setLoading(true);
       const params = new URLSearchParams({
@@ -48,7 +52,13 @@ export default function DoctorPatientsPage() {
         ...(genderFilter !== 'all' && { gender: genderFilter }),
       });
 
-      const response = await fetch(`/api/patients?${params}`);
+      const response = await fetch(`/api/patients?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId.toString()
+        }
+      });
+      
       if (!response.ok) throw new Error('Failed to fetch patients');
 
       const data = await response.json();
@@ -67,14 +77,26 @@ export default function DoctorPatientsPage() {
   };
 
   const fetchPatientDetails = async (patientId: string) => {
+    if (!token || !hospitalId) return;
+
     try {
-      const visitsResponse = await fetch(`/api/patients/${patientId}/visits`);
+      const visitsResponse = await fetch(`/api/patients/${patientId}/visits`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId.toString()
+        }
+      });
       if (visitsResponse.ok) {
         const visitsData = await visitsResponse.json();
         setPatientVisits(visitsData.visits || []);
       }
 
-      const prescriptionsResponse = await fetch(`/api/prescriptions?patient_id=${patientId}`);
+      const prescriptionsResponse = await fetch(`/api/prescriptions?patient_id=${patientId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId.toString()
+        }
+      });
       if (prescriptionsResponse.ok) {
         const prescData = await prescriptionsResponse.json();
         setPatientPrescriptions(prescData.prescriptions || []);
@@ -85,8 +107,10 @@ export default function DoctorPatientsPage() {
   };
 
   useEffect(() => {
-    fetchPatients();
-  }, [currentPage, searchQuery, genderFilter]);
+    if (!authLoading && token && hospitalId) {
+      fetchPatients();
+    }
+  }, [currentPage, searchQuery, genderFilter, authLoading, token, hospitalId]);
 
   const handleViewPatient = async (patient: Patient) => {
     if (!patient.id) return;

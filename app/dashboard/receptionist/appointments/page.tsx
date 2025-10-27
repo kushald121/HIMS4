@@ -27,7 +27,7 @@ import { format } from 'date-fns';
 import type { Appointment, Patient } from '@/app/types';
 
 export default function ReceptionistAppointmentsPage() {
-  const { user, hospitalId } = useAuth();
+  const { user, hospitalId, token } = useAuth();
   const { toast } = useToast();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [filteredAppointments, setFilteredAppointments] = useState<Appointment[]>([]);
@@ -55,7 +55,12 @@ export default function ReceptionistAppointmentsPage() {
       const params = new URLSearchParams();
       if (hospitalId) params.append('hospital_id', hospitalId.toString());
 
-      const response = await fetch(`/api/appointments?${params}`);
+      const response = await fetch(`/api/appointments?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId?.toString() || ''
+        }
+      });
       if (!response.ok) throw new Error('Failed to fetch appointments');
 
       const data = await response.json();
@@ -132,6 +137,10 @@ export default function ReceptionistAppointmentsPage() {
     try {
       const response = await fetch(`/api/appointments/${appointment.id}/check-in`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId?.toString() || ''
+        }
       });
 
       if (!response.ok) {
@@ -167,7 +176,11 @@ export default function ReceptionistAppointmentsPage() {
     try {
       const response = await fetch(`/api/appointments/${selectedAppointment.id}/cancel`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId?.toString() || ''
+        },
         body: JSON.stringify({
           cancellation_reason: cancellationReason || 'No reason provided',
         }),

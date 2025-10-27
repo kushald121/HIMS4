@@ -16,6 +16,7 @@ export default function HospitalSetupPage() {
   const router = useRouter();
   const [formData, setFormData] = useState({
     name: '',
+    code: '',
     address: '',
     contact_email: '',
     contact_phone: ''
@@ -89,6 +90,26 @@ export default function HospitalSetupPage() {
                   onChange={handleChange}
                   required
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="code">Hospital Code *</Label>
+                <Input
+                  id="code"
+                  name="code"
+                  placeholder="CGH"
+                  value={formData.code}
+                  onChange={handleChange}
+                  required
+                  maxLength={50}
+                  className="uppercase"
+                  onInput={(e: React.FormEvent<HTMLInputElement>) => {
+                    e.currentTarget.value = e.currentTarget.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                  }}
+                />
+                <p className="text-xs text-gray-500">
+                  Unique identifier for your hospital (e.g., CGH, MHC). Use only letters and numbers.
+                </p>
               </div>
 
               <div className="space-y-2">

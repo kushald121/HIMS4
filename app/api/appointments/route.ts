@@ -37,15 +37,16 @@ export async function GET(request: NextRequest) {
           contact_number,
           email
         ),
-        doctors:doctor_id (
+        hospital_users:doctor_id (
           id,
-          first_name,
-          last_name,
-          email
+          users (
+            first_name,
+            last_name,
+            email
+          )
         )
       `)
       .eq('hospital_id', hospitalId)
-      .is('deleted_at', null)
       .order('appointment_date', { ascending: true })
       .order('appointment_time', { ascending: true });
 
@@ -158,10 +159,12 @@ export async function POST(request: NextRequest) {
           last_name,
           contact_number
         ),
-        doctors:doctor_id (
+        hospital_users:doctor_id (
           id,
-          first_name,
-          last_name
+          users (
+            first_name,
+            last_name
+          )
         )
       `)
       .single();

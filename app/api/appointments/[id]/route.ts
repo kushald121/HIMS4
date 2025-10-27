@@ -28,15 +28,16 @@ export async function GET(
           date_of_birth,
           gender
         ),
-        doctors:doctor_id (
+        hospital_users:doctor_id (
           id,
-          first_name,
-          last_name,
-          email
+          users (
+            first_name,
+            last_name,
+            email
+          )
         )
       `)
       .eq('id', id)
-      .is('deleted_at', null)
       .single();
 
     if (error) {
@@ -126,10 +127,12 @@ export async function PATCH(
           last_name,
           contact_number
         ),
-        doctors:doctor_id (
+        hospital_users:doctor_id (
           id,
-          first_name,
-          last_name
+          users (
+            first_name,
+            last_name
+          )
         )
       `)
       .single();

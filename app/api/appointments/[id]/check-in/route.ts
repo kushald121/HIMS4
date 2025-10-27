@@ -94,8 +94,10 @@ export async function POST(
         ),
         doctors:doctor_id (
           id,
-          first_name,
-          last_name
+          users (
+            first_name,
+            last_name
+          )
         )
       `)
       .single();

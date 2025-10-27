@@ -1,136 +1,143 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-// Removed useAuth import since we're not using authentication
-// import { useAuth } from '@/app/context/AuthContext';
+import { useAuth } from '@/app/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/app/components/DashboardLayout';
+import PatientRegistrationForm from '@/app/components/patients/PatientRegistrationForm';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Textarea } from '@/components/ui/textarea';
-import { Search, UserPlus, Eye } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Search, UserPlus, Eye, Filter } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function ReceptionistPatientsPage() {
-  // Removed authentication-related hooks
-  // const { token, hospitalId, loading } = useAuth();
+  const { token, hospitalId, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const [patients, setPatients] = useState<any[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [genderFilter, setGenderFilter] = useState<string>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalPatients, setTotalPatients] = useState(0);
   const [loadingData, setLoadingData] = useState(true);
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [formData, setFormData] = useState({
-    date_of_birth: '',
-    gender: 'male',
-    contact_number: '',
-    emergency_contact_name: '',
-    emergency_contact_number: '',
-    address: '',
-    blood_group: '',
-    allergies: '',
-    medical_history: ''
-  });
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedPatient, setSelectedPatient] = useState<any>(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
-  // Removed authentication check useEffect
-  // useEffect(() => {
-  //   if (!loading && (!token || !hospitalId)) {
-  //     router.push('/dashboard');
-  //   } else if (token && hospitalId) {
-  //     fetchPatients();
-  //   }
-  // }, [token, hospitalId, loading, router]);
-
-  // Simulate loading data without authentication
   useEffect(() => {
-    // Simulate API call delay
-    const timer = setTimeout(() => {
-      // Mock patient data
-      setPatients([
-        {
-          id: 1,
-          patient_number: 'P001',
-          users: { first_name: 'John', last_name: 'Doe' },
-          contact_number: '+1234567890',
-          blood_group: 'O+',
-          gender: 'male'
-        },
-        {
-          id: 2,
-          patient_number: 'P002',
-          users: { first_name: 'Jane', last_name: 'Smith' },
-          contact_number: '+0987654321',
-          blood_group: 'A-',
-          gender: 'female'
-        }
-      ]);
-      setLoadingData(false);
-    }, 1000);
+    if (!authLoading && (!token || !hospitalId)) {
+      router.push('/dashboard');
+    } else if (!authLoading && token && hospitalId) {
+      fetchPatients();
+    }
+  }, [currentPage, searchQuery, genderFilter, token, hospitalId, authLoading, router]);
 
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Modified fetchPatients to work without authentication
   const fetchPatients = async () => {
-    // Simulate API call
-    setLoadingData(true);
-    setTimeout(() => {
-      // In a real app, this would fetch from an API
-      setPatients([
-        {
-          id: 1,
-          patient_number: 'P001',
-          users: { first_name: 'John', last_name: 'Doe' },
-          contact_number: '+1234567890',
-          blood_group: 'O+',
-          gender: 'male'
-        },
-        {
-          id: 2,
-          patient_number: 'P002',
-          users: { first_name: 'Jane', last_name: 'Smith' },
-          contact_number: '+0987654321',
-          blood_group: 'A-',
-          gender: 'female'
+    if (!token || !hospitalId) {
+      console.log('Receptionist fetchPatients: Missing auth', { token: !!token, hospitalId });
+      return;
+    }
+    
+    try {
+      setLoadingData(true);
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: '10',
+        ...(searchQuery && { search: searchQuery }),
+        ...(genderFilter !== 'all' && { gender: genderFilter }),
+      });
+
+      console.log('Receptionist fetching patients with:', {
+        url: `/api/patients?${params}`,
+        token: token?.substring(0, 20) + '...',
+        hospitalId
+      });
+
+      const response = await fetch(`/api/patients?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId.toString()
         }
-      ]);
+      });
+
+      console.log('Receptionist fetch response:', response.status, response.ok);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Fetch patients error:', response.status, errorData);
+        throw new Error(errorData.error || 'Failed to fetch patients');
+      }
+
+      const data = await response.json();
+      console.log('Receptionist received data:', {
+        success: data.success,
+        patientsCount: data.patients?.length,
+        dataPatients: data.data?.patients?.length,
+        patients: data.patients,
+        dataWrapper: data.data,
+        pagination: data.pagination,
+        rawData: data
+      });
+      
+      // Handle both response formats
+      const responseData = data.data || data;
+      const patientsList = responseData.patients || [];
+      const paginationData = responseData.pagination || {};
+      
+      setPatients(patientsList);
+      setTotalPages(paginationData.totalPages || 1);
+      setTotalPatients(paginationData.total || 0);
+    } catch (error: any) {
+      console.error('Failed to fetch patients:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to load patients. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
       setLoadingData(false);
-    }, 500);
+    }
   };
 
-  const handleAddPatient = async (e: React.FormEvent) => {
-    e.preventDefault();
-    // Simulate adding a patient without authentication
-    toast({
-      title: 'Success',
-      description: 'Patient registered successfully'
-    });
-    setShowAddDialog(false);
-    // Refresh the patient list
-    fetchPatients();
-    setFormData({
-      date_of_birth: '',
-      gender: 'male',
-      contact_number: '',
-      emergency_contact_name: '',
-      emergency_contact_number: '',
-      address: '',
-      blood_group: '',
-      allergies: '',
-      medical_history: ''
-    });
+  const handlePatientSubmit = async (data: any) => {
+    try {
+      if (!token || !hospitalId) {
+        toast({
+          title: 'Error',
+          description: 'Authentication required. Please log in again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      toast({
+        title: 'Success',
+        description: 'Patient registered successfully',
+      });
+
+      setDialogOpen(false);
+      fetchPatients();
+    } catch (error: any) {
+      console.error('Patient submit error:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to register patient',
+        variant: 'destructive',
+      });
+    }
   };
 
-  // Removed authentication loading check
-  // if (loading || loadingData) {
+  const handleViewPatient = async (patient: any) => {
+    setSelectedPatient(patient);
+    setDetailDialogOpen(true);
+  };
 
-  // Simulate loading state without authentication
-  if (loadingData) {
+  if (authLoading) {
     return (
       <DashboardLayout title="Patients" role="receptionist">
         <div className="flex items-center justify-center h-64">
@@ -145,123 +152,25 @@ export default function ReceptionistPatientsPage() {
       <Card>
         <CardHeader>
           <div className="flex justify-between items-center">
-            <CardTitle>All Patients</CardTitle>
-            <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+            <CardTitle>All Patients ({totalPatients})</CardTitle>
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
                 <Button>
                   <UserPlus className="mr-2 h-4 w-4" />
                   Register Patient
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Register New Patient</DialogTitle>
-                  <DialogDescription>Add a new patient to the system</DialogDescription>
+                  <DialogDescription>
+                    Complete patient registration with all required information
+                  </DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleAddPatient} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="date_of_birth">Date of Birth</Label>
-                      <Input
-                        id="date_of_birth"
-                        type="date"
-                        value={formData.date_of_birth}
-                        onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="gender">Gender</Label>
-                      <Select value={formData.gender} onValueChange={(value) => setFormData({ ...formData, gender: value })}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="male">Male</SelectItem>
-                          <SelectItem value="female">Female</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
-                          <SelectItem value="prefer_not_to_say">Prefer not to say</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="contact_number">Contact Number</Label>
-                      <Input
-                        id="contact_number"
-                        type="tel"
-                        value={formData.contact_number}
-                        onChange={(e) => setFormData({ ...formData, contact_number: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="blood_group">Blood Group</Label>
-                      <Input
-                        id="blood_group"
-                        value={formData.blood_group}
-                        onChange={(e) => setFormData({ ...formData, blood_group: e.target.value })}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="address">Address</Label>
-                    <Textarea
-                      id="address"
-                      value={formData.address}
-                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                      rows={2}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="emergency_contact_name">Emergency Contact Name</Label>
-                      <Input
-                        id="emergency_contact_name"
-                        value={formData.emergency_contact_name}
-                        onChange={(e) => setFormData({ ...formData, emergency_contact_name: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="emergency_contact_number">Emergency Contact Number</Label>
-                      <Input
-                        id="emergency_contact_number"
-                        type="tel"
-                        value={formData.emergency_contact_number}
-                        onChange={(e) => setFormData({ ...formData, emergency_contact_number: e.target.value })}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="allergies">Known Allergies</Label>
-                    <Textarea
-                      id="allergies"
-                      value={formData.allergies}
-                      onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
-                      rows={2}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="medical_history">Medical History</Label>
-                    <Textarea
-                      id="medical_history"
-                      value={formData.medical_history}
-                      onChange={(e) => setFormData({ ...formData, medical_history: e.target.value })}
-                      rows={3}
-                    />
-                  </div>
-
-                  <div className="flex justify-end space-x-2">
-                    <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
-                      Cancel
-                    </Button>
-                    <Button type="submit">Register Patient</Button>
-                  </div>
-                </form>
+                <PatientRegistrationForm
+                  onSuccess={handlePatientSubmit}
+                  onCancel={() => setDialogOpen(false)}
+                />
               </DialogContent>
             </Dialog>
           </div>
@@ -270,50 +179,97 @@ export default function ReceptionistPatientsPage() {
           <div className="mb-4 flex items-center space-x-2">
             <Search className="h-4 w-4 text-gray-400" />
             <Input
-              placeholder="Search by patient number or contact..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && fetchPatients()}
+              placeholder="Search by name, patient number, phone..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
               className="max-w-sm"
             />
-            <Button onClick={fetchPatients}>Search</Button>
+            <Select value={genderFilter} onValueChange={(value) => {
+              setGenderFilter(value);
+              setCurrentPage(1);
+            }}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by gender" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Genders</SelectItem>
+                <SelectItem value="male">Male</SelectItem>
+                <SelectItem value="female">Female</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="icon">
+              <Filter className="h-4 w-4" />
+            </Button>
           </div>
 
-          {patients.length === 0 ? (
+          {loadingData ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          ) : patients.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <p>No patients found. Register your first patient to get started.</p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Patient Number</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Blood Group</TableHead>
-                  <TableHead>Gender</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {patients.map((patient) => (
-                  <TableRow key={patient.id}>
-                    <TableCell className="font-medium">{patient.patient_number}</TableCell>
-                    <TableCell>
-                      {patient.users ? `${patient.users.first_name} ${patient.users.last_name}` : 'Walk-in Patient'}
-                    </TableCell>
-                    <TableCell>{patient.contact_number || '-'}</TableCell>
-                    <TableCell>{patient.blood_group || '-'}</TableCell>
-                    <TableCell className="capitalize">{patient.gender || '-'}</TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="sm">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Patient Number</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Blood Group</TableHead>
+                    <TableHead>Gender</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {patients.map((patient) => (
+                    <TableRow key={patient.id}>
+                      <TableCell className="font-medium">{patient.patient_number}</TableCell>
+                      <TableCell>
+                        {patient.users ? `${patient.users.first_name} ${patient.users.last_name}` : 'Walk-in Patient'}
+                      </TableCell>
+                      <TableCell>{patient.contact_number || '-'}</TableCell>
+                      <TableCell>{patient.blood_group || '-'}</TableCell>
+                      <TableCell className="capitalize">{patient.gender || '-'}</TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="sm" onClick={() => handleViewPatient(patient)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex justify-center gap-2 mt-4">
+                  <Button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    variant="outline"
+                  >
+                    Previous
+                  </Button>
+                  <span className="py-2 px-4 text-sm">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <Button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    variant="outline"
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

@@ -21,13 +21,14 @@ export async function GET(request: NextRequest) {
 
     // Apply filters
     if (search) {
-      query = query.or(`medication_name.ilike.%${search}%,generic_name.ilike.%${search}%`);
+      query = query.or(`medication_name.ilike.%${search}%,generic_name.ilike.%${search}%,brand_name.ilike.%${search}%`);
     }
     if (category) {
       query = query.eq('category', category);
     }
     if (lowStock) {
-      query = query.lte('stock_quantity', 100);
+      // Use filter to check current_stock <= minimum_stock
+      query = query.filter('current_stock', 'lte', 'minimum_stock');
     }
     if (expiringSoon) {
       const thirtyDaysFromNow = new Date();
@@ -71,24 +72,44 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       hospital_id,
+      // Medication Details
       medication_name,
       generic_name,
+      brand_name,
       category,
+      form, // 'Tablet', 'Syrup', 'Injection', etc.
+      strength, // '500mg', '250mg/5ml', etc.
+      
+      // Supplier Information
       manufacturer,
+      supplier,
       batch_number,
+      
+      // Expiry
+      manufacture_date,
       expiry_date,
-      stock_quantity,
-      reorder_threshold,
-      unit_price,
+      
+      // Stock Information
+      current_stock,
+      minimum_stock,
+      maximum_stock,
+      
+      // Pricing
+      unit_cost,
       selling_price,
+      
+      // Storage
       storage_location,
+      
+      // Metadata
       description,
+      requires_prescription,
     } = body;
 
     // Validate required fields
-    if (!hospital_id || !medication_name || stock_quantity === undefined) {
+    if (!hospital_id || !medication_name || current_stock === undefined) {
       return NextResponse.json(
-        { error: 'Missing required fields: hospital_id, medication_name, stock_quantity' },
+        { error: 'Missing required fields: hospital_id, medication_name, current_stock' },
         { status: 400 }
       );
     }
@@ -99,17 +120,25 @@ export async function POST(request: NextRequest) {
       .insert({
         hospital_id,
         medication_name,
-        generic_name,
-        category,
-        manufacturer,
-        batch_number,
-        expiry_date,
-        stock_quantity,
-        reorder_threshold: reorder_threshold || 50,
-        unit_price,
-        selling_price,
-        storage_location,
-        description,
+        generic_name: generic_name || null,
+        brand_name: brand_name || null,
+        category: category || null,
+        form: form || null,
+        strength: strength || null,
+        manufacturer: manufacturer || null,
+        supplier: supplier || null,
+        batch_number: batch_number || null,
+        manufacture_date: manufacture_date || null,
+        expiry_date: expiry_date || null,
+        current_stock: current_stock || 0,
+        minimum_stock: minimum_stock || 10,
+        maximum_stock: maximum_stock || 1000,
+        unit_cost: unit_cost || null,
+        selling_price: selling_price || null,
+        storage_location: storage_location || null,
+        description: description || null,
+        requires_prescription: requires_prescription !== undefined ? requires_prescription : true,
+        is_active: true,
       })
       .select()
       .single();
@@ -128,9 +157,11 @@ export async function POST(request: NextRequest) {
       .insert({
         inventory_id: inventoryItem.id,
         hospital_id,
-        movement_type: 'received',
-        quantity: stock_quantity,
+        movement_type: 'purchase',
+        quantity: current_stock,
         reason: 'Initial stock',
+        stock_before: 0,
+        stock_after: current_stock,
       });
 
     return NextResponse.json({
@@ -150,11 +181,11 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, stock_quantity, reason, performed_by } = body;
+    const { id, current_stock, reason, performed_by } = body;
 
-    if (!id || stock_quantity === undefined) {
+    if (!id || current_stock === undefined) {
       return NextResponse.json(
-        { error: 'ID and stock_quantity are required' },
+        { error: 'ID and current_stock are required' },
         { status: 400 }
       );
     }
@@ -174,13 +205,13 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const quantityDifference = stock_quantity - currentInventory.stock_quantity;
+    const quantityDifference = current_stock - currentInventory.current_stock;
 
     // Update inventory stock
     const { data: inventory, error } = await supabase
       .from('inventory')
       .update({ 
-        stock_quantity, 
+        current_stock, 
         updated_at: new Date().toISOString() 
       })
       .eq('id', id)
@@ -202,10 +233,12 @@ export async function PATCH(request: NextRequest) {
         .insert({
           inventory_id: id,
           hospital_id: currentInventory.hospital_id,
-          movement_type: quantityDifference > 0 ? 'adjustment_in' : 'adjustment_out',
+          movement_type: quantityDifference > 0 ? 'adjustment' : 'adjustment',
           quantity: quantityDifference,
           reason: reason || 'Manual adjustment',
-          performed_by,
+          stock_before: currentInventory.current_stock,
+          stock_after: current_stock,
+          created_by: performed_by || null,
         });
     }
 

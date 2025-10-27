@@ -115,15 +115,38 @@ export async function POST(request: NextRequest) {
         hospital_id: auth.hospitalId!,
         patient_number: patientNumber,
         user_id: body.user_id || null,
+        
+        // Personal Information (denormalized for walk-in patients)
+        first_name: body.first_name || null,
+        last_name: body.last_name || null,
         date_of_birth: body.date_of_birth,
         gender: body.gender,
+        blood_group: body.blood_group || null,
+        
+        // Contact Information
         contact_number: body.contact_number,
+        email: body.email || null,
+        address: body.address || null,
+        city: body.city || null,
+        state: body.state || null,
+        postal_code: body.postal_code || null,
+        
+        // Emergency Contact
         emergency_contact_name: body.emergency_contact_name || null,
         emergency_contact_number: body.emergency_contact_number || null,
-        address: body.address || null,
-        blood_group: body.blood_group || null,
-        allergies: body.allergies || null,
+        emergency_contact_relationship: body.emergency_contact_relationship || null,
+        
+        // Medical Information (converting comma-separated strings to arrays)
+        allergies: body.allergies ? body.allergies.split(',').map((a: string) => a.trim()) : null,
+        chronic_conditions: body.chronic_conditions ? body.chronic_conditions.split(',').map((c: string) => c.trim()) : null,
         medical_history: body.medical_history || null,
+        current_medications: body.current_medications || null,
+        
+        // Insurance (Optional)
+        insurance_provider: body.insurance_provider || null,
+        insurance_policy_number: body.insurance_policy_number || null,
+        insurance_group_number: body.insurance_group_number || null,
+        
         created_by: auth.hospitalUser!.id
       })
       .select(`

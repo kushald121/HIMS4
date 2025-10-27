@@ -92,15 +92,34 @@ export async function PUT(
     };
 
     const allowedFields = [
+      // Personal Information
+      'first_name',
+      'last_name',
       'date_of_birth',
       'gender',
+      'blood_group',
+      
+      // Contact Information
       'contact_number',
+      'email',
+      'address',
+      'city',
+      'state',
+      'postal_code',
+      
+      // Emergency Contact
       'emergency_contact_name',
       'emergency_contact_number',
-      'address',
-      'blood_group',
-      'allergies',
-      'medical_history'
+      'emergency_contact_relationship',
+      
+      // Medical Information
+      'medical_history',
+      'current_medications',
+      
+      // Insurance
+      'insurance_provider',
+      'insurance_policy_number',
+      'insurance_group_number'
     ];
 
     allowedFields.forEach(field => {
@@ -108,6 +127,19 @@ export async function PUT(
         updateData[field] = body[field];
       }
     });
+    
+    // Handle array fields for allergies and chronic_conditions
+    if (body.allergies !== undefined) {
+      updateData.allergies = typeof body.allergies === 'string' 
+        ? body.allergies.split(',').map((a: string) => a.trim()) 
+        : body.allergies;
+    }
+    
+    if (body.chronic_conditions !== undefined) {
+      updateData.chronic_conditions = typeof body.chronic_conditions === 'string'
+        ? body.chronic_conditions.split(',').map((c: string) => c.trim())
+        : body.chronic_conditions;
+    }
 
     const { data: patient, error } = await supabaseAdmin
       .from('patients')

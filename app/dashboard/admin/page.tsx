@@ -17,7 +17,8 @@ import {
   FileText,
   Pill,
   UserCheck,
-  ClipboardList
+  ClipboardList,
+  UserCog
 } from 'lucide-react';
 import { format, startOfMonth, subMonths } from 'date-fns';
 import type { Patient, Appointment, Visit, Prescription, Inventory } from '@/app/types';
@@ -37,6 +38,8 @@ export default function AdminDashboard() {
     totalInventory: 0,
     lowStockItems: 0,
     outOfStock: 0,
+    totalStaff: 0,
+    activeStaff: 0,
   });
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [upcomingAppointments, setUpcomingAppointments] = useState<Appointment[]>([]);
@@ -54,6 +57,13 @@ export default function AdminDashboard() {
   const fetchDashboardData = async () => {
     try {
       setStatsLoading(true);
+      
+      // Ensure we have token and hospitalId before making API calls
+      if (!token || !hospitalId) {
+        console.error('Missing token or hospitalId');
+        return;
+      }
+      
       const today = format(new Date(), 'yyyy-MM-dd');
       const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
 
@@ -61,7 +71,12 @@ export default function AdminDashboard() {
       const patientsParams = new URLSearchParams();
       if (hospitalId) patientsParams.append('hospital_id', hospitalId.toString());
       
-      const patientsResponse = await fetch(`/api/patients?${patientsParams}`);
+      const patientsResponse = await fetch(`/api/patients?${patientsParams}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId!.toString()
+        }
+      });
       if (patientsResponse.ok) {
         const patientsData = await patientsResponse.json();
         const patients = patientsData.patients || [];
@@ -74,7 +89,12 @@ export default function AdminDashboard() {
         const aptParams = new URLSearchParams();
         if (hospitalId) aptParams.append('hospital_id', hospitalId.toString());
         
-        const aptResponse = await fetch(`/api/appointments?${aptParams}`);
+        const aptResponse = await fetch(`/api/appointments?${aptParams}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'x-hospital-id': hospitalId!.toString()
+          }
+        });
         if (aptResponse.ok) {
           const aptData = await aptResponse.json();
           const appointments = aptData.appointments || [];
@@ -103,7 +123,12 @@ export default function AdminDashboard() {
           const visitsParams = new URLSearchParams();
           if (hospitalId) visitsParams.append('hospital_id', hospitalId.toString());
           
-          const visitsResponse = await fetch(`/api/visits?${visitsParams}`);
+          const visitsResponse = await fetch(`/api/visits?${visitsParams}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'x-hospital-id': hospitalId!.toString()
+            }
+          });
           if (visitsResponse.ok) {
             const visitsData = await visitsResponse.json();
             const visits = visitsData.visits || [];
@@ -116,7 +141,12 @@ export default function AdminDashboard() {
             const presParams = new URLSearchParams();
             if (hospitalId) presParams.append('hospital_id', hospitalId.toString());
             
-            const presResponse = await fetch(`/api/prescriptions?${presParams}`);
+            const presResponse = await fetch(`/api/prescriptions?${presParams}`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'x-hospital-id': hospitalId!.toString()
+              }
+            });
             if (presResponse.ok) {
               const presData = await presResponse.json();
               const prescriptions = presData.prescriptions || [];
@@ -129,7 +159,12 @@ export default function AdminDashboard() {
               const invParams = new URLSearchParams();
               if (hospitalId) invParams.append('hospital_id', hospitalId.toString());
               
-              const invResponse = await fetch(`/api/inventory?${invParams}`);
+              const invResponse = await fetch(`/api/inventory?${invParams}`, {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'x-hospital-id': hospitalId!.toString()
+                }
+              });
               if (invResponse.ok) {
                 const invData = await invResponse.json();
                 const inventory = invData.medications || [];
@@ -141,6 +176,27 @@ export default function AdminDashboard() {
                 const outOfStock = inventory.filter(
                   (item: Inventory) => (item.quantity_in_stock ?? item.current_stock) === 0
                 );
+
+                // Fetch staff
+                const staffParams = new URLSearchParams();
+                if (hospitalId) staffParams.append('hospital_id', hospitalId.toString());
+                
+                const staffResponse = await fetch(`/api/staff?${staffParams}`, {
+                  headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'x-hospital-id': hospitalId!.toString()
+                  }
+                });
+                
+                let totalStaff = 0;
+                let activeStaff = 0;
+                
+                if (staffResponse.ok) {
+                  const staffData = await staffResponse.json();
+                  const staff = staffData.staff || [];
+                  totalStaff = staff.length;
+                  activeStaff = staff.filter((s: any) => s.is_active).length;
+                }
 
                 // Build recent activity
                 const activity = [
@@ -172,6 +228,8 @@ export default function AdminDashboard() {
                   totalInventory: inventory.length,
                   lowStockItems: lowStock.length,
                   outOfStock: outOfStock.length,
+                  totalStaff,
+                  activeStaff,
                 });
               }
             }
@@ -213,16 +271,29 @@ export default function AdminDashboard() {
       role="admin"
     >
       {/* Stats Grid */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Patients</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-600">Patients</CardTitle>
             <Users className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalPatients}</div>
             <p className="text-xs text-green-600 mt-1">
               +{stats.newPatientsThisMonth} this month
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Staff</CardTitle>
+            <UserCog className="h-4 w-4 text-indigo-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalStaff}</div>
+            <p className="text-xs text-gray-600 mt-1">
+              {stats.activeStaff} active
             </p>
           </CardContent>
         </Card>
@@ -261,7 +332,7 @@ export default function AdminDashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalInventory}</div>
             <p className="text-xs text-red-600 mt-1">
-              {stats.lowStockItems} low stock items
+              {stats.lowStockItems} low stock
             </p>
           </CardContent>
         </Card>
@@ -431,7 +502,7 @@ export default function AdminDashboard() {
         <CardHeader>
           <CardTitle>Management</CardTitle>
         </CardHeader>
-        <CardContent className="grid md:grid-cols-3 gap-4">
+        <CardContent className="grid md:grid-cols-4 gap-4">
           <Button
             onClick={() => router.push('/dashboard/admin/patients')}
             className="justify-start h-auto py-4"
@@ -440,6 +511,16 @@ export default function AdminDashboard() {
             <div className="text-left">
               <div className="font-semibold">Patients</div>
               <div className="text-xs opacity-90">{stats.totalPatients} registered</div>
+            </div>
+          </Button>
+          <Button
+            onClick={() => router.push('/dashboard/admin/staff')}
+            className="justify-start h-auto py-4 bg-indigo-600 hover:bg-indigo-700"
+          >
+            <UserCog className="mr-3 h-5 w-5" />
+            <div className="text-left">
+              <div className="font-semibold">Staff</div>
+              <div className="text-xs opacity-90">{stats.totalStaff} members</div>
             </div>
           </Button>
           <Button

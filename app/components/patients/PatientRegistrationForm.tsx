@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { useAuth } from '@/app/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -77,6 +78,7 @@ export default function PatientRegistrationForm({
   patientId,
 }: PatientRegistrationFormProps) {
   const [loading, setLoading] = useState(false);
+  const { token, hospitalId } = useAuth();
 
   const {
     register,
@@ -101,7 +103,8 @@ export default function PatientRegistrationForm({
         method,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
+          'x-hospital-id': hospitalId?.toString() || '',
         },
         body: JSON.stringify(data),
       });

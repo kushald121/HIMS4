@@ -4,6 +4,7 @@ import { supabase } from '@/app/lib/supabase';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    const hospitalId = searchParams.get('hospital_id');
     const patientId = searchParams.get('patient_id');
     const doctorId = searchParams.get('doctor_id');
     const visitType = searchParams.get('visit_type');
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
       .from('visits')
       .select(`
         *,
-        patient:patients (
+        patients (
           id,
           patient_number,
           first_name,
@@ -28,23 +29,25 @@ export async function GET(request: NextRequest) {
           blood_group,
           contact_number
         ),
-        doctor:users!visits_doctor_id_fkey (
+        hospital_users!visits_doctor_id_fkey (
           id,
-          first_name,
-          last_name,
-          email
+          users (
+            first_name,
+            last_name,
+            email
+          )
         ),
-        prescription:prescriptions (
+        prescriptions (
           id,
           prescription_number,
           status,
           notes
         )
       `, { count: 'exact' })
-      .is('deleted_at', null)
       .order('visit_date', { ascending: false });
 
     // Apply filters
+    if (hospitalId) query = query.eq('hospital_id', hospitalId);
     if (patientId) query = query.eq('patient_id', patientId);
     if (doctorId) query = query.eq('doctor_id', doctorId);
     if (visitType) query = query.eq('visit_type', visitType);
@@ -136,7 +139,7 @@ export async function POST(request: NextRequest) {
       })
       .select(`
         *,
-        patient:patients (
+        patients (
           id,
           patient_number,
           first_name,
@@ -145,11 +148,13 @@ export async function POST(request: NextRequest) {
           gender,
           blood_group
         ),
-        doctor:users!visits_doctor_id_fkey (
+        hospital_users!visits_doctor_id_fkey (
           id,
-          first_name,
-          last_name,
-          email
+          users (
+            first_name,
+            last_name,
+            email
+          )
         )
       `)
       .single();

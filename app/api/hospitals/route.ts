@@ -32,16 +32,37 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth(request);
     const body = await request.json();
 
-    const { name, address, contact_email, contact_phone, logo_url } = body;
+    const { name, code, address, contact_email, contact_phone, logo_url } = body;
 
     if (!name) {
       return errorResponse('Hospital name is required');
+    }
+
+    if (!code) {
+      return errorResponse('Hospital code is required');
+    }
+
+    // Validate code format (alphanumeric only)
+    if (!/^[A-Z0-9]+$/.test(code)) {
+      return errorResponse('Hospital code must contain only letters and numbers');
+    }
+
+    // Check if code already exists
+    const { data: existingHospital } = await supabaseAdmin
+      .from('hospitals')
+      .select('id')
+      .eq('code', code)
+      .single();
+
+    if (existingHospital) {
+      return errorResponse('Hospital code already exists. Please choose a different code.');
     }
 
     const { data: hospital, error } = await supabaseAdmin
       .from('hospitals')
       .insert({
         name,
+        code: code.toUpperCase(),
         address,
         contact_email,
         contact_phone,
